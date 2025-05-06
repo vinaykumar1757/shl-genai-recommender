@@ -3,4 +3,3 @@ pandas
 sentence-transformers
 faiss-cpu
 PyMuPDF
-numpy
