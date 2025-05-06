@@ -1,64 +1,39 @@
-import os
+import streamlit as st
 import pandas as pd
 from langchain.vectorstores import FAISS
 from langchain.embeddings import HuggingFaceEmbeddings
-from langchain.text_splitter import CharacterTextSplitter
-from langchain.llms import OpenAI
+from langchain.document_loaders import DataFrameLoader
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain.chains import RetrievalQA
-from langchain.document_loaders import CSVLoader
-from langchain.prompts import PromptTemplate
+from langchain.llms import OpenAI
 
-catalog_path = "product_catalog.csv"
-df = pd.read_csv(catalog_path)
+st.set_page_config(page_title="SHL GenAI Assessment Recommender")
+st.title("SHL Assessment Recommendation Engine")
 
-df["combined"] = df["Assessment Name"] + ". " + df["Description"] + ". " + df["Use Case"].fillna("")
+@st.cache_resource
+def load_recommender():
+    df = pd.read_csv("product_catalog.csv")
+    df["combined"] = df["Name"] + ". " + df["Description"] + " Use case: " + df["Use Case"]
 
-temp_catalog = "temp_catalog.csv"
-df[["combined"]].to_csv(temp_catalog, index=False, header=False)
+    loader = DataFrameLoader(df[["combined"]], page_content_column="combined")
+    docs = loader.load()
 
-loader = CSVLoader(file_path=temp_catalog)
-documents = loader.load()
+    splitter = RecursiveCharacterTextSplitter(chunk_size=500, chunk_overlap=50)
+    chunks = splitter.split_documents(docs)
 
-text_splitter = CharacterTextSplitter(chunk_size=500, chunk_overlap=50)
-docs = text_splitter.split_documents(documents)
+    embeddings = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+    db = FAISS.from_documents(chunks, embeddings)
+    retriever = db.as_retriever(search_kwargs={"k": 5})
 
-db = FAISS.from_documents(
-    docs,
-    embedding=HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-)
+    llm = OpenAI(temperature=0.3)
+    qa_chain = RetrievalQA.from_chain_type(llm=llm, retriever=retriever)
+    return qa_chain
 
-db.save_local("faiss_index")
+qa_chain = load_recommender()
 
-db = FAISS.load_local("faiss_index", HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2"))
-retriever = db.as_retriever(search_kwargs={"k": 5})
-
-prompt_template = PromptTemplate(
-    input_variables=["context", "question"],
-    template="""
-    You are an AI assistant at SHL. Your job is to recommend relevant assessments based on the given query.
-
-    Context:
-    {context}
-
-    User Query:
-    {question}
-
-    Return up to 3 assessments in JSON format with fields:
-    - name
-    - pdf_link
-    - description
-    - reason_for_recommendation
-    """
-)
-
-qa_chain = RetrievalQA.from_chain_type(
-    llm=OpenAI(temperature=0.3),
-    retriever=retriever,
-    return_source_documents=True,
-    chain_type_kwargs={"prompt": prompt_template}
-)
-
-query = "We need to assess a technical lead in Python and leadership skills"
-response = qa_chain.run(query)
-
-print(response)
+skill = st.text_input("Enter the skills or problem statement you're hiring for:")
+if st.button("Get Recommendations") and skill:
+    with st.spinner("Finding best-fit assessments..."):
+        result = qa_chain.run(f"Given this skill or need: '{skill}', which SHL assessments should I use? Return only the most relevant ones with names and 1-line descriptions.")
+        st.success("Recommendation:")
+        st.write(result)
