@@ -1,70 +1,49 @@
 import streamlit as st
 import pandas as pd
-from langchain.embeddings import OpenAIEmbeddings
-from langchain.text_splitter import CharacterTextSplitter
-from langchain_community.vectorstores import FAISS
-from langchain.chains import RetrievalQA
-from langchain.chat_models import ChatOpenAI
-from langchain.document_loaders import DataFrameLoader
-import os
-
-st.set_page_config(page_title="🔍 SHL GenAI Assessment Recommender", layout="wide")
-
-st.title("🔍 SHL GenAI Assessment Recommender")
-st.markdown("This app uses Generative AI to recommend SHL assessments based on the skills you provide.")
+from sentence_transformers import SentenceTransformer, util
+import faiss
 
 # Load the product catalog
 @st.cache_data
-def load_data():
-    df = pd.read_csv("product_catalog.csv")
-    df = df[["Assessment Name", "Skills"]]
-    df = df.dropna()
-    return df
+def load_catalog():
+    return pd.read_csv("product_catalog.csv")
 
-df = load_data()
-
-# Initialize embeddings and vector store
+# Load the embedding model
 @st.cache_resource
-def create_qa_chain(df):
-    # Check and fetch OpenAI API key from environment
-    openai_api_key = os.getenv("OPENAI_API_KEY")
+def load_model():
+    return SentenceTransformer('all-MiniLM-L6-v2')
 
-    if not openai_api_key:
-        st.error("❌ OpenAI API key not found. Please set OPENAI_API_KEY in your environment or Streamlit secrets.")
-        st.stop()
+# Build FAISS index
+def build_index(texts, model):
+    embeddings = model.encode(texts, convert_to_tensor=False)
+    index = faiss.IndexFlatL2(len(embeddings[0]))
+    index.add(embeddings)
+    return index, embeddings
 
-    # Convert DataFrame into documents
-    loader = DataFrameLoader(df, page_content_column="Skills")
-    documents = loader.load()
+# Retrieve top k matches
+def retrieve(query, texts, model, index, embeddings, k=5):
+    query_embedding = model.encode([query])
+    _, indices = index.search(query_embedding, k)
+    return [texts[i] for i in indices[0]]
 
-    # Split text
-    text_splitter = CharacterTextSplitter(chunk_size=500, chunk_overlap=0)
-    docs = text_splitter.split_documents(documents)
+# Streamlit App
+st.title("SHL Assessment Recommendation Engine")
+st.markdown("Enter your job role or hiring requirement, and we'll recommend the most relevant SHL assessments.")
 
-    # Vectorstore
-    embeddings = OpenAIEmbeddings(openai_api_key=openai_api_key)
-    db = FAISS.from_documents(docs, embeddings)
+# Load data
+catalog_df = load_catalog()
+model = load_model()
 
-    retriever = db.as_retriever(search_kwargs={"k": 5})
+product_texts = (catalog_df['Product Name'] + " - " + catalog_df['Description']).tolist()
+index, embeddings = build_index(product_texts, model)
 
-    llm = ChatOpenAI(temperature=0, openai_api_key=openai_api_key)
-    qa = RetrievalQA.from_chain_type(llm=llm, chain_type="stuff", retriever=retriever)
+# Input box
+query = st.text_input("Enter a job role or skill requirement:", placeholder="e.g., Software Engineer with Python")
 
-    return qa
-
-qa = create_qa_chain(df)
-
-# User input
-skills = st.text_input("💡 Enter a list of skills (comma-separated):")
-
-if st.button("Get Recommendation"):
-    if skills.strip() == "":
-        st.warning("Please enter some skills to get recommendations.")
-    else:
-        with st.spinner("Generating recommendations..."):
-            query = f"Suggest best SHL assessments from the catalog based on the following skills: {skills}"
-            result = qa.run(query)
-            st.subheader("🔎 Recommended SHL Assessments:")
-            st.write(result)
-
-
+if query:
+    st.write("🔎 Fetching relevant assessments...")
+    results = retrieve(query, product_texts, model, index, embeddings)
+    
+    st.subheader("Recommended SHL Assessments:")
+    for res in results:
+        st.markdown(f"- {res}")
