@@ -3,7 +3,7 @@ import streamlit as st
 import pandas as pd
 import os
 import openai
-from langchain_community.vectorstores import FAISS
+from langchain.vectorstores import FAISS  # instead of langchain_community
 from langchain.embeddings.openai import OpenAIEmbeddings
 from langchain.text_splitter import CharacterTextSplitter
 from langchain.chains import RetrievalQA
