@@ -1,6 +1,6 @@
-langchain==0.1.14
-faiss-cpu==1.7.4
-openai
-pandas
-sentence-transformers
 streamlit
+pandas
+openai
+langchain
+faiss-cpu
+tiktoken
