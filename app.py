@@ -1,40 +1,64 @@
-import streamlit as st
+import os
 import pandas as pd
-from sentence_transformers import SentenceTransformer, util
-import faiss
+from langchain.vectorstores import FAISS
+from langchain.embeddings import HuggingFaceEmbeddings
+from langchain.text_splitter import CharacterTextSplitter
+from langchain.llms import OpenAI
+from langchain.chains import RetrievalQA
+from langchain.document_loaders import CSVLoader
+from langchain.prompts import PromptTemplate
 
-@st.cache_data
-def load_catalog():
-    return pd.read_csv("product_catalog.csv")
+catalog_path = "product_catalog.csv"
+df = pd.read_csv(catalog_path)
 
-@st.cache_resource
-def load_model():
-    return SentenceTransformer('all-MiniLM-L6-v2')
+df["combined"] = df["Assessment Name"] + ". " + df["Description"] + ". " + df["Use Case"].fillna("")
 
-def build_index(texts, model):
-    embeddings = model.encode(texts, convert_to_tensor=False)
-    index = faiss.IndexFlatL2(len(embeddings[0]))
-    index.add(embeddings)
-    return index, embeddings
+temp_catalog = "temp_catalog.csv"
+df[["combined"]].to_csv(temp_catalog, index=False, header=False)
 
-def retrieve(query, texts, model, index, embeddings, k=5):
-    query_embedding = model.encode([query])
-    _, indices = index.search(query_embedding, k)
-    return [texts[i] for i in indices[0]]
+loader = CSVLoader(file_path=temp_catalog)
+documents = loader.load()
 
-st.title("SHL Assessment Recommendation Engine")
-st.markdown("Enter your job role or hiring requirement, and we'll recommend the most relevant SHL assessments.")
+text_splitter = CharacterTextSplitter(chunk_size=500, chunk_overlap=50)
+docs = text_splitter.split_documents(documents)
 
-catalog_df = load_catalog()
-model = load_model()
-product_texts = (catalog_df['Product Name'] + " - " + catalog_df['Description']).tolist()
-index, embeddings = build_index(product_texts, model)
+db = FAISS.from_documents(
+    docs,
+    embedding=HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
+)
 
-query = st.text_input("Enter a job role or skill requirement:", placeholder="e.g., Software Engineer with Python")
+db.save_local("faiss_index")
 
-if query:
-    st.write("🔎 Fetching relevant assessments...")
-    results = retrieve(query, product_texts, model, index, embeddings)
-    st.subheader("Recommended SHL Assessments:")
-    for res in results:
-        st.markdown(f"- {res}")
+db = FAISS.load_local("faiss_index", HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2"))
+retriever = db.as_retriever(search_kwargs={"k": 5})
+
+prompt_template = PromptTemplate(
+    input_variables=["context", "question"],
+    template="""
+    You are an AI assistant at SHL. Your job is to recommend relevant assessments based on the given query.
+
+    Context:
+    {context}
+
+    User Query:
+    {question}
+
+    Return up to 3 assessments in JSON format with fields:
+    - name
+    - pdf_link
+    - description
+    - reason_for_recommendation
+    """
+)
+
+qa_chain = RetrievalQA.from_chain_type(
+    llm=OpenAI(temperature=0.3),
+    retriever=retriever,
+    return_source_documents=True,
+    chain_type_kwargs={"prompt": prompt_template}
+)
+
+query = "We need to assess a technical lead in Python and leadership skills"
+response = qa_chain.run(query)
+
+print(response)
