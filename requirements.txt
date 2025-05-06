@@ -1,6 +1,6 @@
 streamlit
 pandas
 openai
-langchain
+langchain==0.1.14
 faiss-cpu
 tiktoken
