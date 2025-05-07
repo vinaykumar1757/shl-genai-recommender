@@ -1,6 +1,12 @@
-# SHL GenAI Assessment Recommendation Engine
+# SHL GenAI Assessment Recommender
 
-A web-based RAG tool to recommend SHL assessments based on job roles or skill input.
+This app recommends SHL assessments using Generative AI techniques based on job role or uploaded resumes.
 
-## 🔗 Usage
-Run it locally or deploy on Streamlit Cloud.
+**Tech Stack**: Streamlit, Sentence Transformers, FAISS, PyMuPDF
+
+**Bonus Features**:
+- Prompt-tuned semantic search
+- Resume PDF input
+- Relevance ranking with scores
+
+Deployed App 👉 [Visit Here](https://your-username-your-repo-name.streamlit.app)
