@@ -9,4 +9,4 @@ This app recommends SHL assessments using Generative AI techniques based on job 
 - Resume PDF input
 - Relevance ranking with scores
 
-Deployed App 👉 [Visit Here](https://your-username-your-repo-name.streamlit.app)
+Deployed App 👉 [Visit Here](https://shl-genai-recommender-co2xey6qnsgnfk5amcw83j.streamlit.app/)
